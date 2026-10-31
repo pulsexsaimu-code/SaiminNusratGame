@@ -10,27 +10,65 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Unzip Android project
-        run: unzip SaiminNusrat_AndroidBuildKit.zip -d buildsrc
+
+      - name: Check Android project ZIP
+        run: |
+          test -f SaiminNusrat_AndroidBuildKit.zip
+
+      - name: Extract Android project
+        run: |
+          unzip -q SaiminNusrat_AndroidBuildKit.zip -d buildsrc
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 12266719
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
-        run: gradle --no-daemon -p buildsrc/SaiminNusrat_AndroidBuildKit/SaiminNusratAndroidApp assembleDebug
+
+      - name: Find Android project
+        id: project
+        run: |
+          WRAPPER=$(find buildsrc -type f -name gradlew -print -quit)
+          if [ -n "$WRAPPER" ]; then
+            PROJECT_DIR=$(dirname "$WRAPPER")
+            chmod +x "$WRAPPER"
+            echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
+          else
+            SETTINGS=$(find buildsrc -type f \( -name settings.gradle -o -name settings.gradle.kts -o -name build.gradle -o -name build.gradle.kts \) -print -quit)
+            if [ -z "$SETTINGS" ]; then
+              echo "Android Gradle project not found"
+              exit 1
+            fi
+            PROJECT_DIR=$(dirname "$SETTINGS")
+            echo "wrapper=" >> "$GITHUB_OUTPUT"
+          fi
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Build Debug APK
+        run: |
+          if [ -n "${{ steps.project.outputs.wrapper }}" ]; then
+            "${{ steps.project.outputs.wrapper }}" --no-daemon -p "${{ steps.project.outputs.dir }}" assembleDebug
+          else
+            gradle --no-daemon -p "${{ steps.project.outputs.dir }}" assembleDebug
+          fi
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: SaiminNusrat-debug-apk
-          path: buildsrc/SaiminNusrat_AndroidBuildKit/SaiminNusratAndroidApp/app/build/outputs/apk/debug/app-debug.apk
+          path: buildsrc/**/build/outputs/apk/**/*.apk
           if-no-files-found: error
